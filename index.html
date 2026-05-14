@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>IRON GATE | ULTRA V11.8 INSTANT-SYNC</title>
+    <link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@400;600&family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet">
+    <style>
+        :root { --glass: rgba(255, 255, 255, 0.02); --accent: #007AFF; --success: #34C759; --danger: #FF3B30; --warning: #FF9500; }
+        body { background: #000; color: #fff; font-family: 'SF Pro Display', sans-serif; margin: 0; padding: 15px; height: 100vh; overflow: hidden; box-sizing: border-box; }
+        .liquid-container { width: 100%; max-width: 1400px; display: grid; grid-template-columns: 280px 1fr 300px; gap: 15px; height: 95vh; margin: auto; }
+        .glass-panel { background: var(--glass); backdrop-filter: blur(40px); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 24px; padding: 20px; display: flex; flex-direction: column; overflow: hidden; }
+        #chart-canvas { width: 100%; height: 180px; background: rgba(255,255,255,0.01); border-radius: 16px; margin-bottom: 10px; }
+        .matrix-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 15px; }
+        .matrix-item { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 10px 5px; text-align: center; transition: 0.2s; opacity: 0.4; }
+        .matrix-item b { display: block; font-family: 'JetBrains Mono'; font-size: 12px; color: #666; }
+        .matrix-item.hot { border-color: var(--accent); background: rgba(0, 122, 255, 0.15); opacity: 1; transform: scale(1.03); }
+        .matrix-item.hot b { color: var(--accent); }
+        .prediction-area { flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
+        .orb { width: 110px; height: 110px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.1); display: flex; flex-direction: column; align-items: center; justify-content: center; transition: 0.5s; }
+        .orb.ready { border-color: var(--success); box-shadow: 0 0 30px rgba(52, 199, 89, 0.2); }
+        .orb span { font-size: 44px; font-weight: 700; line-height: 1; }
+        .progress-container { width: 100%; height: 4px; background: rgba(255,255,255,0.05); border-radius: 10px; margin-top: 15px; overflow: hidden; }
+        #fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.3s linear; }
+        .btn-ios { background: var(--accent); color: white; border: none; padding: 16px; border-radius: 16px; font-weight: 600; cursor: pointer; transition: 0.3s; margin-top: 10px; width: 100%; text-transform: uppercase; letter-spacing: 1px; font-size: 11px; }
+        .btn-ios.verifying { background: var(--warning); color: #000; }
+        .btn-ios.executing { background: #333; cursor: wait; }
+        .btn-ios:disabled { opacity: 0.2; cursor: not-allowed; filter: grayscale(1); }
+        .mode-toggle { display: flex; gap: 5px; background: rgba(255,255,255,0.05); padding: 5px; border-radius: 12px; margin-bottom: 15px; }
+        .mode-btn { flex: 1; border: none; background: transparent; color: #fff; padding: 8px; border-radius: 8px; cursor: pointer; font-size: 10px; font-weight: 600; transition: 0.2s; opacity: 0.5; }
+        .mode-btn.active { background: var(--accent); opacity: 1; }
+        select, input { background: #111; color: #fff; border: 1px solid rgba(255,255,255,0.1); padding: 10px; border-radius: 10px; margin-bottom: 8px; width: 100%; box-sizing: border-box; font-size: 13px; }
+        .ledger { overflow-y: auto; flex-grow: 1; }
+        .log-row { display: flex; align-items: center; padding: 10px; background: rgba(255,255,255,0.02); border-radius: 12px; margin-bottom: 6px; border-left: 3px solid #333; gap: 10px; font-size: 12px; }
+    </style>
+</head>
+<body>
+
+<div class="liquid-container">
+    <div class="glass-panel">
+        <div style="text-align:center; opacity:0.5; font-size:9px; letter-spacing:1px;">BALANCE (USD)</div>
+        <div style="font-size:28px; font-weight:700; text-align:center; margin: 5px 0; color:var(--success);" id="balance">$0.00</div>
+        
+        <div class="mode-toggle">
+            <button class="mode-btn active" id="mode-match" onclick="setMode('DIGITMATCH')">MATCH</button>
+            <button class="mode-btn" id="mode-diff" onclick="setMode('DIGITDIFF')">DIFF</button>
+        </div>
+
+        <select id="market" onchange="resetConnection()">
+            <option value="R_10">Volatility 10 Index</option>
+            <option value="R_25">Volatility 25 Index</option>
+            <option value="R_50">Volatility 50 Index</option>
+            <option value="R_75">Volatility 75 Index</option>
+            <option value="R_100">Volatility 100 Index</option>
+            <option value="1HZ10V">Volatility 10 (1s)</option>
+            <option value="1HZ25V">Volatility 25 (1s)</option>
+            <option value="1HZ50V">Volatility 50 (1s)</option>
+            <option value="1HZ75V">Volatility 75 (1s)</option>
+            <option value="1HZ100V">Volatility 100 (1s)</option>
+        </select>
+        <input type="number" id="stake" value="1.00">
+        <input type="password" id="token" placeholder="API Token">
+        <button class="btn-ios" onclick="initCore()">Connect Node</button>
+    </div>
+
+    <div class="glass-panel">
+        <canvas id="chart-canvas"></canvas>
+        <div class="matrix-grid" id="matrix"></div>
+        <div class="prediction-area">
+            <div class="orb" id="orb-visual">
+                <span id="target-digit">--</span>
+                <small id="target-pct" style="font-size:11px; opacity:0.6;">0.0%</small>
+            </div>
+            <div class="progress-container"><div id="fill"></div></div>
+        </div>
+        <button id="trade-btn" class="btn-ios" onclick="startVerification()" disabled>Syncing Data...</button>
+    </div>
+
+    <div class="glass-panel">
+        <div style="font-weight:600; margin-bottom:10px; font-size:13px; display:flex; justify-content:space-between;">
+            <span>SESSION HISTORY</span>
+            <span id="win-rate">WR: 0%</span>
+        </div>
+        <div class="ledger" id="ledger"></div>
+    </div>
+</div>
+
+<script>
+    let ws, canvas, ctx, currentMode = 'DIGITMATCH';
+    let tickHistory = [], digitCounts = new Array(10).fill(0), totalProcessed = 0;
+    let wins = 0, totalTrades = 0, isTrading = false, isVerifying = false;
+    let verifyCounter = 0, verifyTarget = -1;
+
+    const sunIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>`;
+
+    window.onload = () => {
+        const savedToken = localStorage.getItem('iron_token');
+        if(savedToken) document.getElementById('token').value = savedToken;
+        const grid = document.getElementById('matrix');
+        for(let i=0; i<10; i++) grid.innerHTML += `<div class="matrix-item" id="digit-${i}"><span>${i}</span><b id="pct-${i}">0.0%</b></div>`;
+        setupCanvas();
+    };
+
+    function setMode(m) {
+        currentMode = m;
+        document.getElementById('mode-match').classList.toggle('active', m === 'DIGITMATCH');
+        document.getElementById('mode-diff').classList.toggle('active', m === 'DIGITDIFF');
+        resetConnection();
+    }
+
+    function setupCanvas() {
+        canvas = document.getElementById('chart-canvas'); ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = canvas.offsetWidth * dpr; canvas.height = canvas.offsetHeight * dpr;
+        ctx.scale(dpr, dpr); drawLoop();
+    }
+
+    function drawLoop() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if(tickHistory.length > 2) {
+            ctx.beginPath(); ctx.strokeStyle = '#007AFF'; ctx.lineWidth = 2;
+            const step = canvas.offsetWidth / (tickHistory.length - 1);
+            const min = Math.min(...tickHistory), max = Math.max(...tickHistory), range = (max - min) || 1;
+            tickHistory.forEach((val, i) => {
+                const x = i * step; const y = 180 - ((val - min) / range * 120 + 30);
+                if(i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+        }
+        requestAnimationFrame(drawLoop);
+    }
+
+    function initCore() {
+        const token = document.getElementById('token').value;
+        if(!token) return;
+        localStorage.setItem('iron_token', token);
+        ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
+        ws.onopen = () => ws.send(JSON.stringify({ authorize: token }));
+        ws.onmessage = (e) => {
+            const data = JSON.parse(e.data);
+            
+            if(data.msg_type === 'authorize') {
+                // INSTANT SYNC: Request last 50 ticks immediately
+                ws.send(JSON.stringify({
+                    ticks_history: document.getElementById('market').value,
+                    adjust_start_time: 1, count: 50, end: "latest", style: "ticks"
+                }));
+                ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
+                ws.send(JSON.stringify({ ticks: document.getElementById('market').value, subscribe: 1 }));
+            }
+
+            if(data.msg_type === 'history') {
+                data.history.prices.forEach(p => processDigit(p));
+            }
+
+            if(data.msg_type === 'balance') document.getElementById('balance').innerText = `$${data.balance.balance.toFixed(2)}`;
+            if(data.msg_type === 'tick') {
+                tickHistory.push(data.tick.quote);
+                if(tickHistory.length > 40) tickHistory.shift();
+                processDigit(data.tick.quote);
+            }
+            if(data.msg_type === 'proposal_open_contract' && (data.proposal_open_contract.is_sold || data.proposal_open_contract.status !== 'open')) {
+                recordTrade(data.proposal_open_contract);
+            }
+        };
+    }
+
+    function processDigit(quote) {
+        const str = quote.toString();
+        const lastDigit = parseInt(str.charAt(str.length - 1));
+        if(!isNaN(lastDigit)) {
+            digitCounts[lastDigit]++;
+            totalProcessed++;
+            updateUI();
+        }
+    }
+
+    function updateUI() {
+        let targetDigit = -1, targetPct = currentMode === 'DIGITMATCH' ? 101 : -1;
+        
+        for(let i=0; i<10; i++) {
+            const p = (digitCounts[i] / totalProcessed) * 100;
+            document.getElementById(`pct-${i}`).innerText = p.toFixed(1) + '%';
+            document.getElementById(`digit-${i}`).classList.remove('hot');
+            
+            if(currentMode === 'DIGITMATCH') {
+                if(p < targetPct) { targetPct = p; targetDigit = i; }
+            } else {
+                if(p > targetPct) { targetPct = p; targetDigit = i; }
+            }
+        }
+
+        document.getElementById(`digit-${targetDigit}`).classList.add('hot');
+        document.getElementById('target-digit').innerText = targetDigit;
+        document.getElementById('target-pct').innerText = targetPct.toFixed(1) + '%';
+        document.getElementById('fill').style.width = Math.min((totalProcessed / 50) * 100, 100) + '%';
+
+        if(totalProcessed >= 50 && !isTrading && !isVerifying) {
+            const btn = document.getElementById('trade-btn');
+            const orb = document.getElementById('orb-visual');
+            if(currentMode === 'DIGITMATCH') {
+                if(targetPct <= 2.0) {
+                    btn.disabled = false; btn.innerText = "EXECUTE STRICT MATCH"; orb.classList.add('ready');
+                } else {
+                    btn.disabled = true; btn.innerText = "SEARCHING COLD DIGIT..."; orb.classList.remove('ready');
+                }
+            } else {
+                btn.disabled = false; btn.innerText = "EXECUTE DIFF"; orb.classList.add('ready');
+            }
+        }
+
+        if(isVerifying) {
+            verifyCounter++;
+            if(targetDigit !== verifyTarget) { resetBtn(); isVerifying = false; return; }
+            if(verifyCounter >= 5) executeTrade(verifyTarget);
+            else document.getElementById('trade-btn').innerText = `STRICT VERIFY (${verifyCounter}/5)...`;
+        }
+    }
+
+    function startVerification() {
+        if(isTrading) return;
+        isVerifying = true; verifyCounter = 0;
+        verifyTarget = parseInt(document.getElementById('target-digit').innerText);
+        const btn = document.getElementById('trade-btn');
+        btn.innerText = "STRICT VERIFY (0/5)...";
+        btn.className = "btn-ios verifying";
+    }
+
+    function executeTrade(target) {
+        isVerifying = false; isTrading = true;
+        const btn = document.getElementById('trade-btn');
+        btn.innerText = "SENDING TO DERIV...";
+        btn.className = "btn-ios executing";
+        ws.send(JSON.stringify({
+            buy: 1, price: document.getElementById('stake').value, subscribe: 1,
+            parameters: {
+                amount: parseFloat(document.getElementById('stake').value), basis: "stake",
+                contract_type: currentMode, currency: "USD", duration: 1, duration_unit: "t",
+                symbol: document.getElementById('market').value, barrier: target
+            }
+        }));
+    }
+
+    function recordTrade(c) {
+        const win = c.status === 'won';
+        totalTrades++; if(win) wins++;
+        const log = document.getElementById('ledger');
+        const row = document.createElement('div');
+        row.className = 'log-row';
+        row.style.borderLeftColor = win ? 'var(--success)' : 'var(--danger)';
+        row.innerHTML = `<div class="trade-icon" style="color:${win?'var(--success)':'var(--danger)'}">${sunIcon}</div>
+            <span style="font-weight:600;">Digit ${c.barrier}</span>
+            <b style="margin-left:auto; color:${win?'var(--success)':'var(--danger)'}">${win?'+':'-'}$${Math.abs(c.profit).toFixed(2)}</b>`;
+        log.prepend(row);
+        document.getElementById('win-rate').innerText = `WR: ${((wins/totalTrades)*100).toFixed(0)}%`;
+        isTrading = false; resetBtn();
+        ws.send(JSON.stringify({ balance: 1 }));
+    }
+
+    function resetBtn() {
+        const btn = document.getElementById('trade-btn');
+        btn.className = "btn-ios"; btn.innerText = "Scanning Market..."; btn.disabled = true;
+    }
+
+    function resetConnection() {
+        if(ws && ws.readyState === 1) {
+            ws.send(JSON.stringify({ forget_all: "ticks" }));
+            ws.send(JSON.stringify({ 
+                ticks_history: document.getElementById('market').value,
+                adjust_start_time: 1, count: 50, end: "latest", style: "ticks" 
+            }));
+            ws.send(JSON.stringify({ ticks: document.getElementById('market').value, subscribe: 1 }));
+        }
+        totalProcessed = 0; digitCounts = new Array(10).fill(0);
+        document.getElementById('trade-btn').disabled = true;
+        isTrading = false; isVerifying = false;
+    }
+</script>
+</body>
+</html>
